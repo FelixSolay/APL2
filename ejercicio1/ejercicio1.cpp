@@ -30,6 +30,27 @@ void ayuda()
     exit(EXIT_SUCCESS);
 }
 
+void crearDemonio() {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Proceso hijo (Nieto 21)
+        pid_t sid = setsid(); // Crear nueva sesión
+        if (sid < 0) exit(EXIT_FAILURE);
+        cout << "Soy el proceso Demonio " << " con pid " << getpid() << ", mi padre es " << getppid() << endl;
+        // Opcional: cambiar directorio de trabajo
+        chdir("/");
+
+        // Cerrar descriptores estándar
+        close(STDIN_FILENO);
+        close(STDOUT_FILENO);
+        close(STDERR_FILENO);
+        //Después de 60 segundos el demonio muere
+        sleep(60);
+        exit(0);
+    }
+}
+
+
 int main(int argc, char* argv[])
 {
     if(argc == 2)
@@ -72,12 +93,15 @@ int main(int argc, char* argv[])
         if (pid2 == 0)
         {
             cout << "Soy el proceso hijo " << "2" << " con pid " << getpid() << ", mi padre es " << getppid() << endl;
+            crearDemonio();
+            /*
             pid_t pidHijo2 = fork();
             if (pidHijo2 == 0)
             {
                 cout << "Soy el proceso nieto del proceso hijo 2" << " con pid " << getpid() << ", mi padre es " << getppid() << endl;
                 pause();
             }
+            */
             pause();
         }
     }
@@ -94,3 +118,5 @@ int main(int argc, char* argv[])
 }
 //Para verificar los procesos: 
 //pstree -p -l| grep ejercicio1
+//Se puede comprobar que el demonio quedó corriendo si hacés un 
+// watch -n 0.5 "ps -e | grep ejercicio1"
