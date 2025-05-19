@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -6,11 +7,14 @@
 #include <chrono>
 #include <cctype>
 #include <cstdlib>
+#include <unistd.h>
+#include <getopt.h>
 
+namespace fs = std::filesystem;
 using namespace std;
 
-// g++ ./ejercicio4.cpp -o ejercicio4
-// ./ejercicio4
+// g++ ejercicio4Server.cpp -std=c++17 -o ejercicio4Server
+// ./ejercicio4Server
 
 bool debug = false;  // Activar/desactivar debug
 
@@ -19,6 +23,7 @@ struct Jugador {
     double tiempo;
 };
 
+//-------------------------------------------------Ahorcado-----------------------------------------------
 void cargarLoteDePruebas() {
     ofstream fp("lote.txt"); //escribir en archivo= ofstream
     vector<string> frasesLote = {
@@ -114,8 +119,80 @@ double partidaAhorcado(int vidas, const vector<string>& frases) {
 Jugador obtenerGanador(const Jugador& a, const Jugador& b) {
     return (a.tiempo < b.tiempo) ? a : b;
 }
+//-------------------------------------------------Ahorcado-----------------------------------------------
+//-------------------------------------------------Ayuda y validaciones-----------------------------------------------
+void ayuda()
+{
+    
+}
 
-int main() {
+void validarParametros(string archivo, int cantidad)
+{
+    if(cantidad==0 || archivo == "")
+    {
+        cout << "No se ingresó un valor para la cantidad o un pathing para un archivo" <<endl;
+        exit(1);
+    }
+    if(cantidad<=0)
+    {
+        cout << "La cantidad debe ser un valor entero" <<endl;
+        exit(1);
+    }
+
+    fs::path path(archivo);
+
+    // Validar existencia
+    if (!fs::exists(path)) {
+        std::cerr << "El archivo no existe.\n";
+        exit(1);
+    }
+
+    // Validar tamaño mayor a 0 bytes
+    if (fs::file_size(path) == 0) {
+        std::cerr << "El archivo está vacío.\n";
+        exit(1);
+    }
+
+    // Validar extensión .txt (case sensitive)
+    if (path.extension() != ".txt") {
+        std::cerr << "El archivo no tiene extensión .txt.\n";
+        exit(1);
+    }
+
+    // Todo OK
+
+}
+int main(int argc, char* argv[]) {
+    int opcion;
+    static struct option opciones_largas[] = {
+        {"archivo", required_argument, 0, 'a'},
+        {"cantidad", required_argument, 0, 'c'},
+        {"help", no_argument, 0, 'h'},
+        {0, 0, 0, 0} //Es necesario como fin de la lista
+    };
+    string archivo="";
+    int cantidad=0;
+    while ((opcion = getopt_long(argc, argv, "a:c:h", opciones_largas, nullptr)) != -1) {
+        switch (opcion) {
+            case 'a':
+                archivo=optarg;
+                std::cout << "Archivo: " << archivo << "\n";
+                break;
+            case 'c':
+                cantidad=atoi(optarg); //optarg es char*
+                std::cout << "Cantidad: " << cantidad << "\n";
+                break;
+            case 'h':
+                std::cout << "Help activado\n";
+                ayuda();
+                exit(EXIT_SUCCESS);
+            case '?': // Opción desconocida
+                std::cerr << "Opción desconocida\n";
+                return 1;
+        }
+    }
+    validarParametros(archivo, cantidad);
+
     srand(time(nullptr));
     cargarLoteDePruebas(); //Genera el txt con la cantidad de frases
     vector<string> frases = leerFrasesDesdeArchivo("lote.txt"); //Carga las frases en un vector dinamico
