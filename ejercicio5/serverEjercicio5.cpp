@@ -8,14 +8,10 @@
 #include <cstdlib>
 #include <unistd.h>
 #include <getopt.h>
-#include <stdio.h>
-#include <unistd.h>
-#include <stdlib.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <netdb.h>
 #include <time.h>
 #include <cstring>
 #include <thread>
@@ -24,28 +20,26 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <fcntl.h>
-#include <csignal>
+#include <signal.h>
 
 namespace fs = std::filesystem;
 using namespace std;
-
-// g++ serverEjercicio5.cpp -std=c++17 -o servidor
-// ./servidor -a ./lote.txt -u 2 -p 5000
-
-mutex mtxActual;
 
 struct Jugador
 {
     string nickname;
     int aciertos;
 };
-std::vector<Jugador> jugadores;
-
+//-------Variables globales----------
+std::vector<Jugador> jugadores; //Vector dinamico de jugadores
+mutex mtxActual; //Mutex
+//-------Variables globales----------
+//----------------------------------------------Handlers-----------------------------------------------
 void manejarSigint(int signal)
 {
     const char *nombreSemaforo = "cantidadUsuarios";
-    sem_unlink(nombreSemaforo);
-    cout << "Llego un sigint\n"<<endl;
+    sem_unlink(nombreSemaforo); //Deslinkeamos el semaforo de usuarios
+    cout << "Se finaliza el ahogado. Mostrando resultados\n"<<endl;
     if (jugadores.empty()) {
         cout << "No hay jugadores registrados.\n";
         exit(0);
@@ -61,22 +55,10 @@ void manejarSigint(int signal)
                   << ", Aciertos: " << j.aciertos << std::endl;
     }
     cout << "El ganador es " <<ganador->nickname << " con una cantidad de " << ganador->aciertos <<" aciertos\n." <<endl;
-    exit(1);
+    exit(0);
 }
-//-------------------------------------------------Ahorcado-----------------------------------------------
-void cargarLoteDePruebas()
-{
-    ofstream fp("lote.txt"); // escribir en archivo= ofstream
-    vector<string> frasesLote = {
-        "Lo esencial es invisible a los ojos",
-        "aaaaabbbcaA",
-        "virtualizacion de hardware",
-        "Lotelotelotelotelote",
-        "Python"};
-    for (int i = frasesLote.size() - 1; i >= 0; --i)
-        fp << frasesLote[i] << endl;
-    // El archivo se cierra solo, no hace falta tirarle un close
-}
+//----------------------------------------------Handlers-----------------------------------------------
+//----------------------------------------------Ahorcado-----------------------------------------------
 
 // Se leen todas las frases desde el archivo una sola vez y a partir de ahi se las accede desde memoria
 vector<string> leerFrasesDesdeArchivo(const string &nombreArchivo)
@@ -123,33 +105,34 @@ int partidaAhorcado(int vidas, const vector<string> &frases, int socketComunicac
     string frase = frases[numFrase];
     string fraseGuiones = ocultarFrase(frase);
 
-    // cout << "\nBienvenido al Ahorcado! Elegí una letra para empezar\n";
     string fraseParaCliente = "\nBienvenido al Ahorcado! Elegí una letra para empezar. Tienes un total de " + to_string(vidas) + " vidas\n"; // Manda mensaje inicial
     write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
     int completado = 0;
     char letra;
-    usleep(1);
     while (vidas && !completado)
     {
         write(socketComunicacion, fraseGuiones.c_str(), fraseGuiones.size()); // Escribe la frase con guiones
         memset(sendBuff, 0, buffSize);
-        bytesLeidos = read(socketComunicacion, sendBuff, buffSize - 1);
+        bytesLeidos = read(socketComunicacion, sendBuff, buffSize - 1);//El read es bloqueante, pero puede fallar si se corta la conexion y arrojar 0 por salida controlada
+    //o -1 por salida con error
         if (bytesLeidos <= 0)
         {
             cout << "Error o desconexión del cliente." << endl;
             return -1; // o break;
         }
         sendBuff[bytesLeidos] = '\0';
-        cout << "Recibi una " << sendBuff << endl;
+        // cout << "Recibi una " << sendBuff << endl;
         letra = sendBuff[0];
-        int resultado = descubrirLetraEnFrase(frase, fraseGuiones, letra);
+        int resultado = descubrirLetraEnFrase(frase, fraseGuiones, letra); //Dada una letra descomenta los guiones si es que puede
+        //Retorna 1 si sacó algun guion, 0 si no sacó ninguno y 2 si fue completado exitosamente
         if (resultado == 0)
         {
             vidas--;
-            if (vidas == 0)
-                break;
-            fraseParaCliente = "Perdiste una vida. Quedan " + to_string(vidas);
-            write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
+            if (vidas != 0) //si todavia no perdemos, escribe una frase
+            {
+                fraseParaCliente = "Perdiste una vida. Quedan " + to_string(vidas);
+                write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
+            }
         }
         else if (resultado == 2)
         {
@@ -162,7 +145,7 @@ int partidaAhorcado(int vidas, const vector<string> &frases, int socketComunicac
             aciertos++;
             write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
         }
-        usleep(1); // Este sleep es para que al cliente le dé tiempo de leer el mensaje y vaciar el buffer, sino le llegan dos mensajes solapados y se bloquea
+        usleep(1); // Este sleep es para que al cliente le dé tiempo de leer el mensaje y vaciar el buffer porque hacemos dos write seguidos, sino le llegan dos mensajes solapados y se bloquea
     }
 
     fraseParaCliente = "Juego terminado. Cantidad de aciertos: " + to_string(aciertos);
@@ -171,11 +154,28 @@ int partidaAhorcado(int vidas, const vector<string> &frases, int socketComunicac
     return aciertos;
 }
 
-//-------------------------------------------------Ahorcado-----------------------------------------------
+//------------------------------------------------------Ahorcado-----------------------------------------------------
 //-------------------------------------------------Ayuda y validaciones-----------------------------------------------
-void ayuda()
+
+    void ayuda()
 {
+    cout << "Esta es la ayuda de parte del servidor del ejercicio 5\n"
+    << "Este programa se encarga de gestionar el juego del ahorcado para N clientes, guarda sus nicknames y sus puntuaciones e informa al jugador que más aciertos obtuvo\n"
+    << "El servidor debe atender a una cantidad N de clientes al mismo tiempo, determinado por parametro\n"
+    << "Si se llega a N clientes, al cliente N+1 le rechaza la conexión\n"
+    << "El juego continua hasta que llegue una señal de sigint al servidor(Ctrl + C)\n"
+    << "Se gane o se pierda, la cantidad de aciertos se usa como puntuación\n"
+    << "Parametros:\n"
+    << "Archivo: Ruta al archivo por donde recibirá las frases a usar para el juego del ahorcado. Deben estar separadas por saltos de linea o \\n \n"
+    << "Puerto: El puerto para realizar la conexion. No puede estar vacio ni ser inferior a 1024\n"
+    << "Usuarios: Cantidad de clientes que pueden jugar al mismo tiempo. Obligatorio y no puede ser 0.\n"
+    << "Help: Muestra esta ayuda\n" 
+    << "Ejemplos de uso: \n"
+    << "./servidor -a ./lote.txt -u 2 -p 5000             \n"
+    << "./servidor -a ./lote.txt -p 5000 --usuarios 2     \n" <<endl;
+    // No te olvides de: g++ serverEjercicio5.cpp -std=c++17 -o servidor
 }
+
 
 void validarParametros(string archivo, int usuarios, int puerto)
 {
@@ -233,17 +233,17 @@ void validarParametros(string archivo, int usuarios, int puerto)
 
     // Todo OK
 }
-
-void atenderCliente(int socketComunicacion, int actual, vector<string> frases, int vidas, vector<Jugador> *jugadores, sem_t *semaforo)
+//-------------------------------------------------Ayuda y validaciones-----------------------------------------------
+//------------------------------------------------------Threads-------------------------------------------------------
+void atenderCliente(int socketComunicacion, vector<string> frases, int vidas, vector<Jugador> *jugadores, sem_t *semaforo)
 {
     Jugador jugadorActual;
     char sendBuff[2000];
     int bytesLeidos;
 
-    memset(sendBuff, 0, sizeof(sendBuff));
-    cout << "Hola desde atenderCliente" << endl;
-    bytesLeidos = read(socketComunicacion, sendBuff, sizeof(sendBuff) - 1);
-    if (bytesLeidos <= 0)
+    memset(sendBuff, 0, sizeof(sendBuff)-1);
+    bytesLeidos = read(socketComunicacion, sendBuff, sizeof(sendBuff) - 1); 
+    if (bytesLeidos <= 0) //Liberamos recursos y cerramos en caso de error
     {
         perror("read");
         close(socketComunicacion);
@@ -256,21 +256,23 @@ void atenderCliente(int socketComunicacion, int actual, vector<string> frases, i
     jugadorActual.nickname = string(sendBuff, bytesLeidos);
 
     jugadorActual.aciertos = partidaAhorcado(vidas, frases, socketComunicacion, sendBuff, sizeof(sendBuff) - 1);
-    if (jugadorActual.aciertos != -1)
+    if (jugadorActual.aciertos != -1) //El codigo -1 es si el usuario pierde la conexion. Damos su partida por inconclusa y retorna -1
     {
         mtxActual.lock();
-        jugadores->push_back(jugadorActual);
+        jugadores->push_back(jugadorActual); //Esta operacion no es segura con concurrencia, por eso necesitamos un mutex
         mtxActual.unlock();
     }
     close(socketComunicacion);
-    sem_post(semaforo);
+    sem_post(semaforo); //V(usuarios)
 }
+//------------------------------------------------------Threads-------------------------------------------------------
 
-//-------------------------------------------------Ayuda y validaciones-----------------------------------------------
 
 int main(int argc, char *argv[])
 {
     signal(SIGINT, manejarSigint);
+    //------------------------Carga de parametros-------------------------
+    
     int opcion;
     static struct option opciones_largas[] = {
         {"archivo", required_argument, 0, 'a'},
@@ -307,23 +309,23 @@ int main(int argc, char *argv[])
         }
     }
     validarParametros(archivo, usuariosConcurrentes, puerto);
-    srand(time(nullptr));
-    cargarLoteDePruebas();                                      // Genera el txt con la cantidad de frases
-    vector<string> frases = leerFrasesDesdeArchivo("lote.txt"); // Carga las frases en un vector dinamico
     int vidas = 3;
-
-    int actual = 0;
+    //------------------------Carga de parametros-------------------------
+    //-----------------------------Semaforos----------------------------------
+    srand(time(nullptr));                                  
+    vector<string> frases = leerFrasesDesdeArchivo("lote.txt"); // Carga las frases en un vector dinamico
+    
+    
+    int valSem = -1;
     cout << "usuConcurrentes " << usuariosConcurrentes << endl;
 
     sem_t *semaforo = sem_open("cantidadUsuarios",
                                O_CREAT,
                                0600,                  // r+w user
                                usuariosConcurrentes); // valor incial
+     //-----------------------------Semaforos----------------------------------
     //--------------------------Config server---------------------------------------------
-    int valSem = -1;
-
-    sem_getvalue(semaforo, &valSem);
-    cout << "Valor del semaforo: " << valSem << endl;
+    
     struct sockaddr_in serverConfig;
     memset(&serverConfig, '0', sizeof(serverConfig));
 
@@ -334,33 +336,25 @@ int main(int argc, char *argv[])
     int socketEscucha = socket(AF_INET, SOCK_STREAM, 0);
     bind(socketEscucha, (struct sockaddr *)&serverConfig, sizeof(serverConfig));
 
-    listen(socketEscucha, usuariosConcurrentes + 1);
+    listen(socketEscucha, usuariosConcurrentes + 1); //El listen no impide que entren nuevas conexiones, por lo que debemos despacharlas con semaforos
     char letra;
     while (true)
     {
         int socketComunicacion = accept(socketEscucha, (struct sockaddr *)NULL, NULL);
         // P(usuario)
-
-        cout << "Hola" << endl;
         sem_getvalue(semaforo, &valSem);
-        if (valSem == 0)
+        if (valSem == 0) 
         {
             string fraseParaCliente = "Se alcanzo el limite de usuarios en simultaneo. Por favor espere antes de volver a intentar";
             write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
             close(socketComunicacion);
         }
-        sem_wait(semaforo); // P()
-        //  Llamada al thread
+        sem_wait(semaforo); // P(usuario)
 
-        std::thread clienteThread(atenderCliente, socketComunicacion, actual, frases, vidas, &jugadores, semaforo);
+        std::thread clienteThread(atenderCliente, socketComunicacion, frases, vidas, &jugadores, semaforo);
         clienteThread.detach(); // para que no bloquee esperando a que termine
-        // V(usuario)
+        // V(usuario) adentro del thread
     }
     close(socketEscucha);
-    for (const auto &j : jugadores)
-    {
-        std::cout << "Jugador: " << j.nickname
-                  << ", Aciertos: " << j.aciertos << std::endl;
-    }
     return 0;
 }
