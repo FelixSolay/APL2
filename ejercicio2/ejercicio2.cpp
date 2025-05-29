@@ -1,17 +1,128 @@
-#include <filesystem>
 #include <iostream>
 #include <fstream>
+#include <sstream>
 #include <string>
-#include <unistd.h>
+#include <filesystem>
 #include <getopt.h>
-#include <mutex>
 #include <semaphore.h>
-#include <thread>
+#include <pthread.h>
 #include <sys/stat.h>
-#include <bits/stdc++.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <random>
+#include <map>
 
+namespace fs = std::filesystem;
 using namespace std;
 
+//semaforos
+pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER; //mutex para sincronizar productor-consumidor
+pthread_mutex_t peso_mutex = PTHREAD_MUTEX_INITIALIZER; //mutex para sincronizar la acumulación de pesos
+sem_t capacidad; //máximo 10 archivos en simultaneo
+sem_t cant_paq; //cantidad de paquetes procesados actualmente
+
+
+//datos compartidos
+string directorio;
+int total_paquetes = 0;
+int generados = 0;
+int procesados = 0;
+
+//mapa de pesos por sucursal  <IdSucursal, AcumulacionPeso>
+map<int, double> pesos_sucursal;
+
+
+void* productor(void* arg) {
+    int id = *(int*)arg;
+    //Valores random (para peso y sucursal)
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_real_distribution<> peso(0.1, 300.0);
+    uniform_int_distribution<> destino(1, 50);
+    //DEBUG
+    cout<<"Cree un productor"<<endl;
+    //DEBUG
+    while (true) {
+        //Evito Deadlocks y esperas Innecesarias
+        pthread_mutex_lock(&mtx);
+        if (generados >= total_paquetes) {
+            pthread_mutex_unlock(&mtx);
+            break;
+        }
+        int id_paquete = ++generados;
+        pthread_mutex_unlock(&mtx);
+
+        sem_wait(&capacidad);
+        pthread_mutex_lock(&mtx);
+
+        ostringstream path;
+        path << directorio << "/" << id_paquete << ".paq";
+        ofstream archivo(path.str());
+        archivo << id_paquete << ";" << peso(gen) << ";" << destino(gen) << "\n";
+        //DEBUG
+        cout<<"Cree un PAQUETE en " << directorio << "/" << id_paquete << ".paq" << endl;
+        //DEBUG                
+        archivo.close();
+
+        sem_post(&cant_paq);
+        pthread_mutex_unlock(&mtx);
+    }
+
+    return nullptr;
+}
+
+void* consumidor(void* arg) {
+    //DEBUG
+    cout<<"Cree un consumidor"<<endl;
+    //DEBUG
+    while (true) {
+        //Evito Deadlocks y esperas Innecesarias
+        pthread_mutex_lock(&mtx);
+        if (procesados >= total_paquetes) {
+            pthread_mutex_unlock(&mtx);
+            break;
+        }
+        pthread_mutex_unlock(&mtx);
+
+        sem_wait(&cant_paq);
+        pthread_mutex_lock(&mtx);
+
+        for (auto& entry : fs::directory_iterator(directorio)) {
+            if (entry.path().extension() == ".paq") {
+                ifstream archivo(entry.path());
+                string linea;
+                getline(archivo, linea);
+                archivo.close();
+
+                istringstream iss(linea);
+                string id, peso_str, dest_str;
+                getline(iss, id, ';');
+                getline(iss, peso_str, ';');
+                getline(iss, dest_str, ';');
+
+                int dest = std::stoi(dest_str);
+                double peso = std::stod(peso_str);
+
+                pthread_mutex_lock(&peso_mutex);
+                pesos_sucursal[dest] += peso;
+                pthread_mutex_unlock(&peso_mutex);
+
+                fs::create_directory(directorio + "/procesados");
+                fs::rename(entry.path(), directorio + "/procesados/" + entry.path().filename().string());
+                //DEBUG
+                cout<<"Movi el PAQUETE a " << directorio << "/procesados" <<endl;
+                //DEBUG                        
+                procesados++;
+                sem_post(&capacidad);
+                break;
+            }
+        }
+
+        pthread_mutex_unlock(&mtx);
+    }
+
+    return nullptr;
+}
 
 void ayuda()
 {
@@ -32,41 +143,24 @@ void ayuda()
     exit(EXIT_SUCCESS);    
 }
 
+void error_exit(const string& mensaje, int codigo) {
+    cerr << "Error: " << mensaje << endl;
+    exit(codigo);
+}
 
 void validarParametros(string directorio, int generadores, int consumidores, int paquetes)
 {
-    char* dir;
-    strcpy(dir,directorio.c_str());
     struct stat sb;
 
-    if(directorio == "")
-    {
-        cout << "No se ingresó un directorio para analizar." <<endl;
-        exit(1);
-    }
-    if(generadores<=0)
-    {
-        cout << "La cantidad de generadores debe ser un valor entero positivo." <<endl;
-        exit(2);
-    }
+    if(directorio == "") error_exit("No se ingresó un directorio para analizar.",1);
 
-    if(consumidores<=0)
-    {
-        cout << "La cantidad de consumidores debe ser un valor entero positivo." <<endl;
-        exit(3);
-    }
+    if (stat(directorio.c_str(), &sb) != 0) error_exit("El directorio no existe o es inválido.",2);
 
-    if(paquetes<=0)
-    {
-        cout << "La cantidad de paquetes a generar debe ser un valor entero positivo." <<endl;
-        exit(4);
-    }
+    if(generadores<=0) error_exit("La cantidad de generadores debe ser un valor entero positivo.",3);
 
-    if (stat(dir, &sb) != 0)
-    {
-        cout << "El directorio no existe o es inválido." <<endl;
-        exit(5);
-    }
+    if(consumidores<=0) error_exit("La cantidad de consumidores debe ser un valor entero positivo.",4);
+
+    if(paquetes<=0) error_exit("La cantidad de paquetes a generar debe ser un valor entero positivo.",5);
 
 }
 
@@ -83,10 +177,8 @@ int main(int argc, char* argv[]) {
         {0, 0, 0, 0} //Es necesario como fin de la lista
     };
 
-    string directorio="";
     int cantGeneradores=0;
     int cantConsumidores=0;
-    int cantPaquetes=0;
 
     while ((opcion = getopt_long(argc, argv, "d:g:c:p:h", opciones_largas, nullptr)) != -1) {
         switch (opcion) {
@@ -103,8 +195,8 @@ int main(int argc, char* argv[]) {
                 std::cout << "Cantidad de Consumidores: " << cantConsumidores << "\n";
                 break;
             case 'p':
-                cantPaquetes=atoi(optarg); //optarg es char*
-                std::cout << "Cantidad de Paquetes: " << cantPaquetes << "\n";
+                total_paquetes=atoi(optarg); //optarg es char*
+                std::cout << "Cantidad de Paquetes: " << total_paquetes << "\n";
                 break;                                
             case 'h':
                 ayuda();
@@ -114,5 +206,31 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    validarParametros(directorio, cantGeneradores,cantConsumidores,cantPaquetes);
+    validarParametros(directorio, cantGeneradores,cantConsumidores,total_paquetes);
+
+    fs::remove_all(directorio);
+    fs::create_directory(directorio);
+
+    sem_init(&capacidad, 0, 10);
+    sem_init(&cant_paq, 0, 0);
+
+    pthread_t productores[cantGeneradores], consumidores[cantConsumidores];
+    int ids[cantGeneradores];
+    for (int i = 0; i < cantGeneradores; ++i) {
+        ids[i] = i;
+        pthread_create(&productores[i], nullptr, productor, &ids[i]);
+    }
+    for (int i = 0; i < cantConsumidores; ++i)
+        pthread_create(&consumidores[i], nullptr, consumidor, nullptr);
+
+
+    for (int i = 0; i < cantGeneradores; ++i) pthread_join(productores[i], nullptr);
+    for (int i = 0; i < cantConsumidores; ++i) pthread_join(consumidores[i], nullptr);
+    
+    // Mostrar resumen
+    for (auto& [suc, total] : pesos_sucursal)
+        cout << "Sucursal " << suc << ": " << total << " kg" << std::endl;
+    // liberar semaforos
+    sem_destroy(&capacidad);
+    sem_destroy(&cant_paq);    
 }
