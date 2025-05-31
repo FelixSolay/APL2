@@ -18,6 +18,7 @@ using namespace std;
 //semaforos
 pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER; //mutex para sincronizar productor-consumidor
 pthread_mutex_t peso_mutex = PTHREAD_MUTEX_INITIALIZER; //mutex para sincronizar la acumulación de pesos
+//pthread_mutex_t archivo_mutex = PTHREAD_MUTEX_INITIALIZER; //mutex para sincronizar el acceso a los archivos NO SE APROVECHA BIEN LA CONCURRENCIA
 sem_t capacidad; //máximo 10 archivos en simultaneo
 sem_t cant_paq; //cantidad de paquetes procesados actualmente
 
@@ -39,31 +40,22 @@ void* productor(void* arg) {
     mt19937 gen(rd());
     uniform_real_distribution<> peso(0.1, 300.0);
     uniform_int_distribution<> destino(1, 50);
-    //DEBUG
-    cout<<"Cree un productor"<<endl;
-    //DEBUG
     while (true) {
         //Evito Deadlocks y esperas Innecesarias
         pthread_mutex_lock(&mtx);
-        if (generados >= total_paquetes) {
+        if (generados >= total_paquetes) {    
             pthread_mutex_unlock(&mtx);
             break;
-        }
+        }  
         int id_paquete = ++generados;
         pthread_mutex_unlock(&mtx);
-
         sem_wait(&capacidad);
         pthread_mutex_lock(&mtx);
-
         ostringstream path;
         path << directorio << "/" << id_paquete << ".paq";
         ofstream archivo(path.str());
-        archivo << id_paquete << ";" << peso(gen) << ";" << destino(gen) << "\n";
-        //DEBUG
-        cout<<"Cree un PAQUETE en " << directorio << "/" << id_paquete << ".paq" << endl;
-        //DEBUG                
+        archivo << id_paquete << ";" << peso(gen) << ";" << destino(gen) << "\n";     
         archivo.close();
-
         sem_post(&cant_paq);
         pthread_mutex_unlock(&mtx);
     }
@@ -72,11 +64,7 @@ void* productor(void* arg) {
 }
 
 void* consumidor(void* arg) {
-    //DEBUG
-    cout<<"Cree un consumidor"<<endl;
-    //DEBUG
     while (true) {
-        //Evito Deadlocks y esperas Innecesarias
         pthread_mutex_lock(&mtx);
         if (procesados >= total_paquetes) {
             pthread_mutex_unlock(&mtx);
@@ -84,41 +72,71 @@ void* consumidor(void* arg) {
         }
         pthread_mutex_unlock(&mtx);
 
-        sem_wait(&cant_paq);
-        pthread_mutex_lock(&mtx);
-
-        for (auto& entry : fs::directory_iterator(directorio)) {
-            if (entry.path().extension() == ".paq") {
-                ifstream archivo(entry.path());
-                string linea;
-                getline(archivo, linea);
-                archivo.close();
-
-                istringstream iss(linea);
-                string id, peso_str, dest_str;
-                getline(iss, id, ';');
-                getline(iss, peso_str, ';');
-                getline(iss, dest_str, ';');
-
-                int dest = std::stoi(dest_str);
-                double peso = std::stod(peso_str);
-
-                pthread_mutex_lock(&peso_mutex);
-                pesos_sucursal[dest] += peso;
-                pthread_mutex_unlock(&peso_mutex);
-
-                fs::create_directory(directorio + "/procesados");
-                fs::rename(entry.path(), directorio + "/procesados/" + entry.path().filename().string());
-                //DEBUG
-                cout<<"Movi el PAQUETE a " << directorio << "/procesados" <<endl;
-                //DEBUG                        
-                procesados++;
-                sem_post(&capacidad);
-                break;
-            }
+        if (sem_trywait(&cant_paq) != 0) {
+            pthread_mutex_lock(&mtx);
+            bool done = procesados >= total_paquetes;
+            pthread_mutex_unlock(&mtx);
+            if (done) break;
+            usleep(1000); // Esperar un poco para evitar busy waiting
+            continue;
         }
 
+        fs::path archivo_a_procesar;
+        fs::path archivo_lockeado;
+        bool encontrado = false;
+
+        pthread_mutex_lock(&mtx);
+        for (auto& entry : fs::directory_iterator(directorio)) {
+            if (entry.path().extension() == ".paq") {
+                archivo_a_procesar = entry.path();
+                archivo_lockeado = entry.path();
+                archivo_lockeado += ".lock";
+
+                // Intentamos renombrar para "reservarlo"
+                std::error_code ec;
+                fs::rename(archivo_a_procesar, archivo_lockeado, ec);
+                if (!ec) {
+                    encontrado = true;
+                    break;
+                }
+            }
+        }
         pthread_mutex_unlock(&mtx);
+
+        if (!encontrado) {
+            sem_post(&capacidad); // Liberamos el espacio
+            continue;
+        }
+
+        // Procesar el archivo .lock
+        ifstream archivo(archivo_lockeado);
+        string linea;
+        getline(archivo, linea);
+        archivo.close();
+
+        istringstream iss(linea);
+        string id, peso_str, dest_str;
+        getline(iss, id, ';');
+        getline(iss, peso_str, ';');
+        getline(iss, dest_str, ';');
+
+        int dest = stoi(dest_str);
+        double peso = stod(peso_str);
+
+        pthread_mutex_lock(&peso_mutex);
+        pesos_sucursal[dest] += peso;
+        pthread_mutex_unlock(&peso_mutex);
+
+        fs::path destino = fs::path(directorio) / "procesados" / (archivo_a_procesar.filename().string());
+        destino.replace_extension(".paq"); // quitar el `.lock`
+
+        fs::rename(archivo_lockeado, destino);
+
+        pthread_mutex_lock(&mtx);
+        procesados++;
+        pthread_mutex_unlock(&mtx);
+
+        sem_post(&capacidad);
     }
 
     return nullptr;
@@ -210,6 +228,7 @@ int main(int argc, char* argv[]) {
 
     fs::remove_all(directorio);
     fs::create_directory(directorio);
+    fs::create_directory(directorio + "/procesados");
 
     sem_init(&capacidad, 0, 10);
     sem_init(&cant_paq, 0, 0);
@@ -223,8 +242,9 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < cantConsumidores; ++i)
         pthread_create(&consumidores[i], nullptr, consumidor, nullptr);
 
-
+    //matar a los productores
     for (int i = 0; i < cantGeneradores; ++i) pthread_join(productores[i], nullptr);
+    //matar a los consumidores
     for (int i = 0; i < cantConsumidores; ++i) pthread_join(consumidores[i], nullptr);
     
     // Mostrar resumen
