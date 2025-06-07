@@ -55,11 +55,13 @@ void inicializarSemaforos(int semid) {
     }
 }
 
+//P(semaforo)
 void wait(int semid, int semnum) {
     sembuf op = {static_cast<unsigned short>(semnum), -1, 0};
     semop(semid, &op, 1);
 }
 
+//V(semaforo)
 void signal(int semid, int semnum) {
     sembuf op = {static_cast<unsigned short>(semnum), 1, 0};
     semop(semid, &op, 1);
@@ -150,7 +152,7 @@ int main(int argc, char* argv[]) {
 
     int semid = semget(SEM_KEY, TOTAL_SEMAFOROS, IPC_CREAT | IPC_EXCL | 0666);
     if (semid == -1) {
-        cerr << "Error: No se pudieron crear los semáforos. ¿Ya hay un servidor activo?\n";
+        cerr << "Error: No se pudieron crear los semáforos.\n";
         shmctl(shmid, IPC_RMID, nullptr);
         return 1;
     }
@@ -185,6 +187,7 @@ int main(int argc, char* argv[]) {
     juego->letra_disponible = false;
     juego->resultado_disponible = false;
     juego->juego_terminado = false;
+    juego->juego_terminado_abruptamente = false;    
     juego->inicio = time(nullptr);
     memset(juego->nickname, 0, MAX_NOMBRE);
 
@@ -202,6 +205,10 @@ int main(int argc, char* argv[]) {
         cout << "Esperando cliente..." << endl;
         // Esperar a que cliente se conecte (el cliente hará signal en SEM_CLIENTE_PUEDE_ENVIAR)
         wait(semid, SEM_CLIENTE_PUEDE_ENVIAR);
+        if (terminar_inmediatamente) {
+            juego->juego_terminado_abruptamente=true;
+            break; // finalización inmediata  
+        }
         cout << "Cliente conectado. Nickname: " << juego->nickname << endl;
 
         // Reset estado juego
@@ -225,16 +232,22 @@ int main(int argc, char* argv[]) {
         bool victoria = false;
 
         while (!juego->juego_terminado) {
-            // Esperar que cliente escriba letra
+            // Esperar que cliente escriba letra -> P(SEM_CLIENTE_PUEDE_ENVIAR)
             wait(semid, SEM_CLIENTE_PUEDE_ENVIAR);
+            if (terminar_inmediatamente) {
+                juego->juego_terminado_abruptamente=true;
+                break; // finalización inmediata  
+            }           
+
+            // Procesar letra
             char letra = juego->letra_actual;
             bool acierto = false;
 
-            // Procesar letra
             for (size_t i = 0; i < strlen(juego->frase_original); ++i) {
-                if (tolower(juego->frase_original[i]) == tolower(letra) && juego->frase_oculta[i] == '_') {
+                if (tolower(juego->frase_original[i]) == tolower(letra)) {// && juego->frase_oculta[i] == '_' no sería error si repite una letra
                     juego->frase_oculta[i] = juego->frase_original[i];
                     acierto = true;
+
                 }
             }
 
@@ -257,7 +270,7 @@ int main(int argc, char* argv[]) {
 
             juego->resultado_disponible = true;
 
-            // Liberar para que cliente vea el resultado
+            // Liberar para que cliente vea el resultado -> V(SEM_SERVIDOR_PUEDE_RESPONDER)
             signal(semid, SEM_SERVIDOR_PUEDE_RESPONDER);
         }
 
@@ -271,7 +284,13 @@ int main(int argc, char* argv[]) {
             cout << "¡El cliente '" << juego->nickname << "' ganó! Frase: " << juego->frase_original << " en el tiempo: '" << duracion << "'" <<endl;
             ranking.push_back({juego->nickname, duracion});
         } else {
-            cout << "El cliente '" << juego->nickname << "' perdió. Frase era: " << juego->frase_original << endl;
+            if(juego->juego_terminado_abruptamente){
+                cout << "El juego finalizo de manera Inesperada."<<endl;
+            }
+            else{
+                cout << "El cliente '" << juego->nickname << "' perdió. La frase era: " << juego->frase_original << endl;                    
+            }
+            
         }
 
         // Esperar si hay señal de cierre pendiente

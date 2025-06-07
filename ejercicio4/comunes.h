@@ -20,6 +20,7 @@ struct Juego {
     bool letra_disponible;
     bool resultado_disponible;
     bool juego_terminado;
+    bool juego_terminado_abruptamente;    
     char nickname[MAX_NOMBRE];
     time_t inicio;
     time_t fin;

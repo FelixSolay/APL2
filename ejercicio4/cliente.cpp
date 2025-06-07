@@ -9,11 +9,13 @@
 
 using namespace std;
 
+//P(semaforo)
 void wait(int semid, int semnum) {
     sembuf op = {static_cast<unsigned short>(semnum), -1, 0};
     semop(semid, &op, 1);
 }
 
+//V(semaforo)
 void signal(int semid, int semnum) {
     sembuf op = {static_cast<unsigned short>(semnum), 1, 0};
     semop(semid, &op, 1);
@@ -97,20 +99,31 @@ int main(int argc, char* argv[]) {
 
     cout << "Conectado. Frase: " << juego->frase_oculta << endl;
 
-    while (!juego->juego_terminado) {
+    while (!juego->juego_terminado && !juego->juego_terminado_abruptamente) {
+        std::string input;
         char letra;
-        cout << "Ingresa una letra: ";
-        cin >> letra;
-
+        //validar ingreso de una única letra
+        while (true){
+            cout << "Ingresa una letra: ";
+            getline(cin,input);
+            if (input.length() == 1) {
+                letra = input[0];
+                break;
+            } else {
+                cout << "Entrada inválida. Por favor, ingresa solo una letra.\n";
+            }
+        }
+        if (juego->juego_terminado_abruptamente)
+            break;      
         // Enviar letra
         juego->letra_actual = letra;
         juego->letra_disponible = true;
 
-        // Avisar al servidor
+        // Avisar al servidor -> V(SEM_CLIENTE_PUEDE_ENVIAR)
         signal(semid, SEM_CLIENTE_PUEDE_ENVIAR);
 
 
-        // Esperar respuesta
+        // Esperar respuesta -> P(SEM_SERVIDOR_PUEDE_RESPONDER)
         wait(semid, SEM_SERVIDOR_PUEDE_RESPONDER);
 
         // Mostrar resultado
@@ -120,12 +133,16 @@ int main(int argc, char* argv[]) {
         if (juego->juego_terminado)
             break;
     }
-
-    if (strcmp(juego->frase_oculta, juego->frase_original) == 0) {
-        cout << "¡Ganaste! Frase: " << juego->frase_original << endl;
-    } else {
-        cout << "Perdiste. Frase era: " << juego->frase_original << endl;
-    }
+    if (!juego->juego_terminado_abruptamente){
+        if (strcmp(juego->frase_oculta, juego->frase_original) == 0) {
+            cout << "¡Ganaste! Frase: " << juego->frase_original << endl;
+        } else {
+            cout << "Perdiste. Frase era: " << juego->frase_original << endl;
+        }
+    } 
+    else {//terminó con Sigusr 2
+        cout << "Se perdió la conexión con el servidor, finalizando Cliente."<< endl;
+    }   
 
     // Desconectar memoria
     shmdt(juego);
