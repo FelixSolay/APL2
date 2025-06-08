@@ -179,6 +179,7 @@ int main(int argc, char* argv[]) {
     }
 
     srand(time(nullptr));
+
     string seleccionada = frases[rand() % frases.size()];
     strncpy(juego->frase_original, seleccionada.c_str(), MAX_FRASE);
     juego->frase_original[MAX_FRASE - 1] = '\0';
@@ -200,7 +201,6 @@ int main(int argc, char* argv[]) {
     }
     juego->frase_oculta[seleccionada.size()] = '\0';
 
-
     while(true) {
         cout << "Esperando cliente..." << endl;
         // Esperar a que cliente se conecte (el cliente hará signal en SEM_CLIENTE_PUEDE_ENVIAR)
@@ -211,26 +211,27 @@ int main(int argc, char* argv[]) {
         }
         cout << "Cliente conectado. Nickname: " << juego->nickname << endl;
 
-        // Reset estado juego
-        juego->intentos_restantes = intentos;
-        juego->letra_actual = '\0';
-        juego->letra_disponible = false;
-        juego->resultado_disponible = false;
-        juego->juego_terminado = false;
-        juego->inicio = time(nullptr);
+        if (juego->juego_terminado){
+            // Reset estado juego
+            juego->intentos_restantes = intentos;
+            juego->letra_actual = '\0';
+            juego->letra_disponible = false;
+            juego->resultado_disponible = false;
+            juego->juego_terminado = false;
+            juego->inicio = time(nullptr);
 
-        // Elegir nueva frase aleatoria
-        string seleccionada = frases[rand() % frases.size()];
-        strncpy(juego->frase_original, seleccionada.c_str(), MAX_FRASE);
-        juego->frase_original[MAX_FRASE - 1] = '\0';
+            // Elegir nueva frase aleatoria
+            string seleccionada = frases[rand() % frases.size()];
+            strncpy(juego->frase_original, seleccionada.c_str(), MAX_FRASE);
+            juego->frase_original[MAX_FRASE - 1] = '\0';
 
-        for (size_t i = 0; i < seleccionada.size(); ++i) {
-            juego->frase_oculta[i] = (seleccionada[i] == ' ') ? ' ' : '_';
+            for (size_t i = 0; i < seleccionada.size(); ++i) {
+                juego->frase_oculta[i] = (seleccionada[i] == ' ') ? ' ' : '_';
+            }
+            juego->frase_oculta[seleccionada.size()] = '\0';
         }
-        juego->frase_oculta[seleccionada.size()] = '\0';
-
         bool victoria = false;
-
+    
         while (!juego->juego_terminado) {
             // Esperar que cliente escriba letra -> P(SEM_CLIENTE_PUEDE_ENVIAR)
             wait(semid, SEM_CLIENTE_PUEDE_ENVIAR);
