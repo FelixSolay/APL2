@@ -34,7 +34,7 @@ map<int, double> pesos_sucursal;
 
 
 void* productor(void* arg) {
-    int id = *(int*)arg;
+    //int id = *(int*)arg;
     //Valores random (para peso y sucursal)
     random_device rd;
     mt19937 gen(rd());
