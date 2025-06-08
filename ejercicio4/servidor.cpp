@@ -49,6 +49,27 @@ vector<string> leerFrases(const string& archivo) {
     return frases;
 }
 
+void prepararNuevaPartida(Juego* juego, const vector<string>& frases, int intentos) {
+    string seleccionada = frases[rand() % frases.size()];
+    strncpy(juego->frase_original, seleccionada.c_str(), MAX_FRASE);
+    juego->frase_original[MAX_FRASE - 1] = '\0';
+
+    juego->intentos_restantes = intentos;
+    juego->letra_actual = '\0';
+    juego->letra_disponible = false;
+    juego->resultado_disponible = false;
+    juego->juego_terminado = false;
+    juego->juego_terminado_abruptamente = false;
+    juego->inicio = time(nullptr);
+    memset(juego->nickname, 0, MAX_NOMBRE);
+
+    for (size_t i = 0; i < seleccionada.size(); ++i) {
+        juego->frase_oculta[i] = (seleccionada[i] == ' ') ? ' ' : '_';
+    }
+    juego->frase_oculta[seleccionada.size()] = '\0';
+}
+
+
 void inicializarSemaforos(int semid) {
     for (int i = 0; i < TOTAL_SEMAFOROS; ++i) {
         semctl(semid, i, SETVAL, (i == SEM_CLIENTE_PUEDE_ENVIAR) ? 0 : 0);
@@ -179,7 +200,7 @@ int main(int argc, char* argv[]) {
     }
 
     srand(time(nullptr));
-
+    /*
     string seleccionada = frases[rand() % frases.size()];
     strncpy(juego->frase_original, seleccionada.c_str(), MAX_FRASE);
     juego->frase_original[MAX_FRASE - 1] = '\0';
@@ -200,8 +221,9 @@ int main(int argc, char* argv[]) {
             juego->frase_oculta[i] = '_';
     }
     juego->frase_oculta[seleccionada.size()] = '\0';
-
+    */
     while(true) {
+        prepararNuevaPartida(juego, frases, intentos);
         cout << "Esperando cliente..." << endl;
         // Esperar a que cliente se conecte (el cliente hará signal en SEM_CLIENTE_PUEDE_ENVIAR)
         wait(semid, SEM_CLIENTE_PUEDE_ENVIAR);
@@ -210,7 +232,7 @@ int main(int argc, char* argv[]) {
             break; // finalización inmediata  
         }
         cout << "Cliente conectado. Nickname: " << juego->nickname << endl;
-
+        /*
         if (juego->juego_terminado){
             // Reset estado juego
             juego->intentos_restantes = intentos;
@@ -230,6 +252,7 @@ int main(int argc, char* argv[]) {
             }
             juego->frase_oculta[seleccionada.size()] = '\0';
         }
+        */
         bool victoria = false;
     
         while (!juego->juego_terminado) {
