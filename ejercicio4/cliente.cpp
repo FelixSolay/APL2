@@ -143,6 +143,8 @@ int main(int argc, char* argv[]) {
     else {//terminó con Sigusr 2
         cout << "Se perdió la conexión con el servidor, finalizando Cliente."<< endl;
     }   
+    //Cliente terminó de leer los resultados. Podés limpiar y preparar una nueva partida.
+    signal(semid, SEM_CLIENTE_TERMINO_PARTIDA);
 
     // Desconectar memoria
     shmdt(juego);
