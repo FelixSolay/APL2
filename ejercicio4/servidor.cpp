@@ -1,3 +1,11 @@
+/*
+INTEGRANTES DEL GRUPO
+    MARTINS LOURO, LUCIANO AGUSTÍN
+    PASSARELLI, AGUSTIN EZEQUIEL
+    WEIDMANN, GERMAN ARIEL
+    DE SOLAY, FELIX           
+*/
+
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -89,12 +97,22 @@ void signal(int semid, int semnum) {
 }
 
 void mostrarAyuda() {
-    cout << "Uso: servidor -a <archivo> -c <intentos>\n";
-    cout << "Parámetros:\n";
-    cout << "  -a, --archivo    Archivo con frases\n";
-    cout << "  -c, --cantidad   Cantidad de intentos por partida\n";
-    cout << "  -h, --help       Mostrar esta ayuda\n";
+    cout << "=== Ayuda del Servidor del Juego del Ahorcado ===\n"
+         << "Este servidor controla las partidas del juego Ahorcado utilizando memoria compartida\n"
+         << "y semáforos para comunicarse con un cliente a la vez. Se selecciona una frase aleatoria\n"
+         << "y se evalúan las letras enviadas por el cliente.\n\n"
+         << "Parámetros:\n"
+         << "  -a, --archivo      Ruta del archivo .txt que contiene las frases para el juego (obligatorio).\n"
+         << "  -c, --cantidad     Cantidad de intentos permitidos por partida (obligatorio).\n"
+         << "  -h, --help         Muestra esta ayuda.\n\n"
+         << "Ejemplos de uso:\n"
+         << "  ./servidor -a frases.txt -c 5\n"
+         << "  ./servidor --archivo /home/usuario/frases.txt --cantidad 10\n\n"
+         << "El servidor ignora SIGINT (Ctrl+C), y responde a:\n"
+         << "  SIGUSR1: Finaliza luego de terminar la partida actual (si hay una en curso).\n"
+         << "  SIGUSR2: Finaliza inmediatamente, interrumpiendo la partida si es necesario.\n" << endl;
 }
+
 
 void validarParametros(string archivo, int cantidad)
 {

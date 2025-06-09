@@ -1,3 +1,11 @@
+/*
+INTEGRANTES DEL GRUPO
+    MARTINS LOURO, LUCIANO AGUSTÍN
+    PASSARELLI, AGUSTIN EZEQUIEL
+    WEIDMANN, GERMAN ARIEL
+    DE SOLAY, FELIX           
+*/
+
 #include <iostream>
 #include <fstream>
 #include <sys/stat.h>

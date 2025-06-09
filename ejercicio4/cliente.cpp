@@ -1,3 +1,11 @@
+/*
+INTEGRANTES DEL GRUPO
+    MARTINS LOURO, LUCIANO AGUSTÍN
+    PASSARELLI, AGUSTIN EZEQUIEL
+    WEIDMANN, GERMAN ARIEL
+    DE SOLAY, FELIX           
+*/
+
 #include <iostream>
 #include <cstring>
 #include <getopt.h>
@@ -22,10 +30,17 @@ void signal(int semid, int semnum) {
 }
 
 void mostrarAyuda() {
-    cout << "Uso: cliente -n <nickname>\n";
-    cout << "Parámetros:\n";
-    cout << "  -n, --nickname    Nombre del jugador\n";
-    cout << "  -h, --help        Mostrar ayuda\n";
+    cout << "=== Ayuda del Cliente del Juego del Ahorcado ===\n"
+         << "Este programa se conecta con el servidor del juego Ahorcado, recibe una frase oculta,\n"
+         << "e interactúa letra por letra hasta adivinarla o agotar los intentos.\n\n"
+         << "Parámetros:\n"
+         << "  -n, --nickname     Nombre del jugador (obligatorio).\n"
+         << "  -h, --help         Muestra esta ayuda.\n\n"
+         << "Ejemplos de uso:\n"
+         << "  ./cliente -n juan\n"
+         << "  ./cliente --nickname lucia\n\n"
+         << "Este cliente requiere que el servidor esté en ejecución previamente y que exista\n"
+         << "memoria compartida y semáforos disponibles según los identificadores definidos.\n" << endl;
 }
 
 void sigint_handler(int signo) {
