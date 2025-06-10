@@ -345,7 +345,7 @@ int main(int argc, char *argv[])
     bind(socketEscucha, (struct sockaddr *)&serverConfig, sizeof(serverConfig));
 
     listen(socketEscucha, usuariosConcurrentes + 1); //El listen no impide que entren nuevas conexiones, por lo que debemos despacharlas con semaforos
-    char letra;
+    //char letra;
     while (true)
     {
         int socketComunicacion = accept(socketEscucha, (struct sockaddr *)NULL, NULL);
