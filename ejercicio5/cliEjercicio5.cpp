@@ -119,7 +119,6 @@ int main(int argc, char *argv[])
     memcpy(&socketConfig.sin_addr, hostServer->h_addr, hostServer->h_length);
 
     int socketComunicacion = socket(AF_INET, SOCK_STREAM, 0);
-
     int resultadoConexion = connect(socketComunicacion,
                                     (struct sockaddr *)&socketConfig, sizeof(socketConfig));
 
@@ -149,13 +148,13 @@ int main(int argc, char *argv[])
 
     if (mensajeRecibido.compare(0, 10, "Se alcanzo") == 0) // Se alcanzo el limite de usuarios en simultaneo, por lo que corta
     {
-        cout << mensajeRecibido << endl;
         close(socketComunicacion);
         return 0;
     }
 
     while (mensajeRecibido.compare(0, 16, "Juego terminado.") != 0) //Ganes o pierdas te aparece juego terminado y cuentan tu cantidad de aciertos
     {
+        string entrada;
         // Recibe frase con guiones
         memset(sendBuff, 0, sizeof(sendBuff));
         bytesRecibidos = read(socketComunicacion, sendBuff, sizeof(sendBuff) - 1);
@@ -170,8 +169,14 @@ int main(int argc, char *argv[])
         // Leer letra
         char letraChar;
         cout << "Ingresa letra: ";
-        cin >> letraChar;
-
+        getline(cin, entrada);
+        letraChar = entrada[0];       
+        //Verifica que te llegue una letra válida, no un caracter no letra o una palabra 
+        while( entrada.size() != 1 || ((letraChar < 'a' || letraChar > 'z') && (letraChar < 'A' || letraChar > 'Z'))){
+            (entrada.size() != 1)?cout << "Solo se puede ingresar una letra, no palabras.\n":cout << "Ingresa una letra válida. Entre a y z, mayúscula o minúscula, sin Ñ\n";
+            getline(cin, entrada);
+            letraChar = entrada[0];
+        }
         // Enviar letra
         write(socketComunicacion, &letraChar, 1);
 
@@ -193,5 +198,3 @@ int main(int argc, char *argv[])
     close(socketComunicacion);
     return 0;
 }
-// g++ ./cliEjercicio5.cpp -o cliente
-// ./cliente -n pepe  -s 127.0.0.1 -p 5000

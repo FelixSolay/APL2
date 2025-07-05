@@ -1,0 +1,9 @@
+Si quieren probar el script les dejo los pasos que hice para probarlo
+1) Crear la imagen a partir del dockerfile, llamemosla imagen
+2) Crean una red con docker network create mi_red
+3) Para cada contenedor que levanten lo van a poner en running con estos comandos
+docker run -dit --name serverDocker --network mi_red imagen
+docker run -dit --name clienteDocker1 --network mi_red imagen
+docker run -dit --name clienteDocker2 --network mi_red imagen
+4) En cada contenedor tienen que poner docker exec -it nombre /bin/bash y ahi ejecutar el script
+Segun probé con localhost no funciona, pero si usan "serverDocker" en el parametro de servidor, el script resuelve la ip y los redirige al servidor.

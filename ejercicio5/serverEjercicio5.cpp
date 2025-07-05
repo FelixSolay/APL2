@@ -62,7 +62,7 @@ void manejarSigint(int signal)
         std::cout << "Jugador: " << j.nickname
                   << ", Aciertos: " << j.aciertos << std::endl;
     }
-    cout << "El ganador es " <<ganador->nickname << " con una cantidad de " << ganador->aciertos <<" aciertos\n." <<endl;
+    cout << "El ganador es " <<ganador->nickname << " con una cantidad de " << ganador->aciertos <<" aciertos.\n" <<endl;
     exit(0);
 }
 //----------------------------------------------Handlers-----------------------------------------------
@@ -115,20 +115,24 @@ int partidaAhorcado(int vidas, const vector<string> &frases, int socketComunicac
 
     string fraseParaCliente = "\nBienvenido al Ahorcado! Elegí una letra para empezar. Tienes un total de " + to_string(vidas) + " vidas\n"; // Manda mensaje inicial
     write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
+    usleep(1); //Para sincronizar los write con los read
     int completado = 0;
     char letra;
+
     while (vidas && !completado)
     {
         write(socketComunicacion, fraseGuiones.c_str(), fraseGuiones.size()); // Escribe la frase con guiones
         memset(sendBuff, 0, buffSize);
         bytesLeidos = read(socketComunicacion, sendBuff, buffSize - 1);//El read es bloqueante, pero puede fallar si se corta la conexion y arrojar 0 por salida controlada
+
+    
     //o -1 por salida con error
         if (bytesLeidos <= 0)
         {
             cout << "Error o desconexión del cliente." << endl;
             return -1; // o break;
         }
-        sendBuff[bytesLeidos] = '\0';
+        sendBuff[1] = '\0';
         // cout << "Recibi una " << sendBuff << endl;
         letra = sendBuff[0];
         int resultado = descubrirLetraEnFrase(frase, fraseGuiones, letra); //Dada una letra descomenta los guiones si es que puede
@@ -156,7 +160,7 @@ int partidaAhorcado(int vidas, const vector<string> &frases, int socketComunicac
         usleep(1); // Este sleep es para que al cliente le dé tiempo de leer el mensaje y vaciar el buffer porque hacemos dos write seguidos, sino le llegan dos mensajes solapados y se bloquea
     }
 
-    fraseParaCliente = "Juego terminado. Cantidad de aciertos: " + to_string(aciertos);
+    fraseParaCliente = "Juego terminado. Frase final: " + frase + ". Cantidad de aciertos: " + to_string(aciertos);
     write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
 
     return aciertos;
@@ -181,7 +185,6 @@ int partidaAhorcado(int vidas, const vector<string> &frases, int socketComunicac
     << "Ejemplos de uso: \n"
     << "./servidor -a ./lote.txt -u 2 -p 5000             \n"
     << "./servidor -a ./lote.txt -p 5000 --usuarios 2     \n" <<endl;
-    // No te olvides de: g++ serverEjercicio5.cpp -std=c++17 -o servidor
 }
 
 
@@ -258,8 +261,7 @@ void atenderCliente(int socketComunicacion, vector<string> frases, int vidas, ve
         sem_post(semaforo);
         return;
     }
-    sendBuff[bytesLeidos] = '\0';
-    jugadorActual.nickname = string(sendBuff, bytesLeidos);
+    string nickname=string(sendBuff, bytesLeidos);
     sendBuff[bytesLeidos] = '\0';
     jugadorActual.nickname = string(sendBuff, bytesLeidos);
 
@@ -325,8 +327,6 @@ int main(int argc, char *argv[])
     
     
     int valSem = -1;
-    cout << "usuConcurrentes " << usuariosConcurrentes << endl;
-
     sem_t *semaforo = sem_open("cantidadUsuarios",
                                O_CREAT,
                                0600,                  // r+w user
@@ -342,10 +342,21 @@ int main(int argc, char *argv[])
     serverConfig.sin_port = htons(puerto); // Es recomendable que el puerto sea mayor a 1023 para aplicaciones de usuario.
 
     int socketEscucha = socket(AF_INET, SOCK_STREAM, 0);
-    bind(socketEscucha, (struct sockaddr *)&serverConfig, sizeof(serverConfig));
+    int opt = 1;
+
+    setsockopt(socketEscucha, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)); //Con esta configuracion vamos a forzar a reutilizar el puerto incluso si está en TIME_WAIT o CLOSE_WAIT.
+    if (bind(socketEscucha, (struct sockaddr*)&serverConfig, sizeof(serverConfig)) < 0) {
+        if (errno == EADDRINUSE) { //Si tenemos dos servidores que quieren usar el mismo puerto
+            cout << "El puerto " << puerto << " ya está en uso.\n";
+        } else {
+            perror("Error en bind");
+        }
+        close(socketEscucha);
+        return 1;
+    }
 
     listen(socketEscucha, usuariosConcurrentes + 1); //El listen no impide que entren nuevas conexiones, por lo que debemos despacharlas con semaforos
-    //char letra;
+
     while (true)
     {
         int socketComunicacion = accept(socketEscucha, (struct sockaddr *)NULL, NULL);
@@ -356,6 +367,7 @@ int main(int argc, char *argv[])
             string fraseParaCliente = "Se alcanzo el limite de usuarios en simultaneo. Por favor espere antes de volver a intentar";
             write(socketComunicacion, fraseParaCliente.c_str(), fraseParaCliente.size());
             close(socketComunicacion);
+            continue;
         }
         sem_wait(semaforo); // P(usuario)
 
