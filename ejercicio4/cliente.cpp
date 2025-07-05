@@ -59,7 +59,6 @@ void validarParametros(string nickname)
 int main(int argc, char* argv[]) {
     string nickname;
 
-
     const char* const short_opts = "n:h";
     const option long_opts[] = {
         {"nickname", required_argument, nullptr, 'n'},
@@ -89,7 +88,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-
     void* ptr = shmat(shmid, nullptr, 0);
     if (ptr == (void*)-1) {
         cerr << "Error al conectar memoria compartida.\n";
@@ -108,7 +106,13 @@ int main(int argc, char* argv[]) {
     // Escribir nickname
     strncpy(juego->nickname, nickname.c_str(), MAX_NOMBRE);
     juego->nickname[MAX_NOMBRE - 1] = '\0';
-
+    
+    if (juego->cliente_conectado) {
+        cerr << "Ya hay un cliente conectado. Intenta más tarde.\n";
+        shmdt(juego);
+        return 1;
+    }
+    juego->cliente_conectado = true; // Marcar que este cliente ya tomó su lugar
     // Iniciar juego (libera servidor)
     signal(semid, SEM_CLIENTE_PUEDE_ENVIAR);
 

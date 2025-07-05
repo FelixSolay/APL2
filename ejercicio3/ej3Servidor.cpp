@@ -17,6 +17,7 @@ INTEGRANTES DEL GRUPO
 #include <sys/types.h>
 #include <string.h>
 #include <vector>
+#include <csignal>
 
 
 //ambos usan el FIFO de cola de impresion
@@ -24,6 +25,8 @@ INTEGRANTES DEL GRUPO
 #define LOG_PATH "/tmp/impresiones.log"
 //defino el tamaño de los archivos con los que vamos a trabajar
 #define LARGO_ARCHIVO 256
+
+int fifo = -1; //FIFO global (para poder usar el handler de SIGINT)
 
 using namespace std;
 
@@ -55,6 +58,20 @@ void ayuda()
     exit(EXIT_SUCCESS);
 }
 
+void sigint_handler(int signo) {
+    std::cout << "\nSIGINT capturado. Limpiando...\n";
+
+    if (fifo != -1) {
+        close(fifo);
+        std::cout << "FIFO cerrado correctamente.\n";
+    }
+
+    unlink(FIFO_PATH);
+    unlink(LOG_PATH);
+    std::cout << "FIFO y log eliminados.\n";
+
+    exit(0);
+}
 
 void error_exit(const string& mensaje, int codigo) {
     cerr << "Error: " << mensaje << endl;
@@ -67,6 +84,7 @@ void validarParametros(int impresiones)
 }
 
 int main(int argc, char* argv[]) {
+    signal(SIGINT, sigint_handler);
     int opcion;
 
     static struct option opciones_largas[] = {
@@ -102,7 +120,7 @@ int main(int argc, char* argv[]) {
     ofstream log(LOG_PATH, ios::app);
 
     //abro el fifo para leer los mensajes
-    int fifo = open(FIFO_PATH, O_RDONLY);
+    fifo = open(FIFO_PATH, O_RDONLY);
 
     int trabajosAProcesar = cantidadImpresiones;
     int trabajosProcesados = 0;
@@ -167,7 +185,6 @@ int main(int argc, char* argv[]) {
             continue;
         }
     }
-
 
     //cierro y libero fifo
     close(fifo);

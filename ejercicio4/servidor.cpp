@@ -61,7 +61,7 @@ void prepararNuevaPartida(Juego* juego, const vector<string>& frases, int intent
     string seleccionada = frases[rand() % frases.size()];
     strncpy(juego->frase_original, seleccionada.c_str(), MAX_FRASE);
     juego->frase_original[MAX_FRASE - 1] = '\0';
-
+    juego->cliente_conectado = false;
     juego->intentos_restantes = intentos;
     juego->letra_actual = '\0';
     juego->letra_disponible = false;
@@ -178,7 +178,9 @@ int main(int argc, char* argv[]) {
 
     // Ignorar Ctrl-C
     signal(SIGINT, sigint_handler);
+    // Espera a terminar la partida y finaliza
     signal(SIGUSR1, sigusr1_handler);
+    // Finaliza la partida abruptamente
     signal(SIGUSR2, sigusr2_handler);
 
     int shmid = shmget(SHM_KEY, sizeof(Juego), IPC_CREAT | IPC_EXCL | 0666);
@@ -294,7 +296,7 @@ int main(int argc, char* argv[]) {
         }
         // Esperar a que el cliente termine de ver el resultado
         wait(semid, SEM_CLIENTE_TERMINO_PARTIDA);
-
+        juego->cliente_conectado = false;
 
         // Esperar si hay señal de cierre pendiente
         if (terminar || terminar_inmediatamente) {
