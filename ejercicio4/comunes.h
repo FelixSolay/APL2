@@ -9,17 +9,36 @@ INTEGRANTES DEL GRUPO
 #ifndef COMUNES_H
 #define COMUNES_H
 
-#include <semaphore.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
-#include <sys/shm.h>
 #include <ctime>
+
+#define SHM_NAME "/juego_ahorcado_shm"
+#define SEM_CONEXION "/sem_conexion"
+#define SEM_INICIO "/sem_inicio"
+#define SEM_LETRA "/sem_letra"
+#define SEM_RESULTADO "/sem_resultado"
+#define SEM_MUTEX "/sem_mutex"
+
 
 #define MAX_FRASE 256
 #define MAX_NOMBRE 64
-#define SHM_KEY 1234
-#define SEM_KEY 5678
 
+struct Juego {
+    char frase_original[MAX_FRASE];
+    char frase_oculta[MAX_FRASE];
+    int intentos_restantes;
+    char letra_actual;
+    bool juego_terminado;
+    bool cliente_conectado;
+    bool terminado_abruptamente;
+    char nickname[MAX_NOMBRE];
+    time_t inicio;
+    time_t fin;
+    pid_t pid_cliente;
+};
+
+#endif
+
+/* estructura vieja
 struct Juego {
     char frase_original[MAX_FRASE];
     char frase_oculta[MAX_FRASE];
@@ -34,13 +53,4 @@ struct Juego {
     time_t inicio;
     time_t fin;
 };
-
-enum Semaforos {
-    SEM_CLIENTE_PUEDE_ENVIAR,
-    SEM_SERVIDOR_PUEDE_RESPONDER,
-    SEM_MUTEX,
-    SEM_CLIENTE_TERMINO_PARTIDA,
-    TOTAL_SEMAFOROS
-};
-
-#endif
+*/
