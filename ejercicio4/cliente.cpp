@@ -15,6 +15,7 @@ INTEGRANTES DEL GRUPO
 #include <sys/mman.h>
 #include <semaphore.h>
 #include "comunes.h"
+#include <termios.h>
 
 using namespace std;
 
@@ -51,7 +52,7 @@ void validarParametros(string nickname)
 }
 
 int main(int argc, char* argv[]) {
-    
+     
     string nickname;
 
     const char* const short_opts = "n:h";
@@ -77,7 +78,12 @@ int main(int argc, char* argv[]) {
     // Ignorar Ctrl+C
     signal(SIGINT, SIG_IGN);
     // Forzar salida cuando se cierra el server
-    signal(SIGUSR1, sigusr1_handler);
+    //signal(SIGUSR1, sigusr1_handler);
+    struct sigaction sa;
+    sa.sa_handler = sigusr1_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0; // <--- IMPORTANTE: sin SA_RESTART
+    sigaction(SIGUSR1, &sa, NULL);    
     // CREAR MEMORIA COMPARTIDA
     int shm_fd = shm_open(SHM_NAME, O_RDWR, 0666);
     if (shm_fd == -1) {
@@ -125,8 +131,93 @@ int main(int argc, char* argv[]) {
     cout << "Conectado. Frase a adivinar: " << juego->frase_oculta << endl;
     
     while (!juego->juego_terminado && !forzar_salida) {
+        fd_set fds;
+        struct timeval tv;
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        tv.tv_sec = 10;
+        tv.tv_usec = 0;
+        cout << "Ingresa una letra: ";
+        cout.flush();
+
+        int r = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+
+        if (forzar_salida) {
+            cout << "\nSe recibió la señal del servidor. Finalizando.\n";
+            break;
+        }        
+        
+
+        if (r > 0) {
+            char buffer[16];
+            int n = read(STDIN_FILENO, buffer, sizeof(buffer));
+            if (n > 0) {
+                char letra = buffer[0];
+                juego->letra_actual = letra;
+                sem_post(sem_letra);
+
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                ts.tv_sec += 2;
+
+                if (sem_timedwait(sem_resultado, &ts) == -1) {
+                    if (errno == ETIMEDOUT && forzar_salida) {
+                        cout << "\nEl servidor finalizó la partida de forma abrupta.\n";
+                        break;
+                    } else if (errno != ETIMEDOUT) {
+                        perror("sem_timedwait");
+                        break;
+                    }
+                    continue;
+                }
+
+                cout << "Frase actual: " << juego->frase_oculta << endl;
+                cout << "Intentos restantes: " << juego->intentos_restantes << endl;
+
+                if (juego->terminado_abruptamente) {
+                    cout << "El servidor finalizó la partida de forma abrupta.\n";
+                    break;
+                }
+            }
+        } else if (r == 0) {
+            if (forzar_salida) {
+                cout << "\nSe recibió la señal del servidor. Finalizando.\n";
+                break;
+            }
+            continue;
+        } else {
+            perror("select");
+            break;
+        }
+    }
+    if (!juego->terminado_abruptamente) {
+        if (strcmp(juego->frase_oculta, juego->frase_original) == 0)
+            cout << "\n ¡Ganaste! Frase completa: " << juego->frase_original << endl;
+        else
+            cout << "\nPerdiste. La frase era: " << juego->frase_original << endl;
+    }
+
+    munmap(juego, sizeof(Juego));
+    close(shm_fd);
+
+    sem_close(sem_conexion);
+    sem_close(sem_inicio);
+    sem_close(sem_letra);
+    sem_close(sem_resultado);
+    sem_close(sem_mutex);
+
+    return 0;
+}
+
+
+
+
+
+    /*while con entrada normal
+    while (!juego->juego_terminado && !forzar_salida) {
         string input;
         char letra;
+        
         do {
             cout << "Ingresa una letra: ";
             getline(cin, input);
@@ -146,22 +237,49 @@ int main(int argc, char* argv[]) {
             cout << "El servidor finalizó la partida de forma abrupta.\n";
             break;
         }
-    }    
-    if (!juego->terminado_abruptamente) {
-        if (strcmp(juego->frase_oculta, juego->frase_original) == 0)
-            cout << "\n ¡Ganaste! Frase completa: " << juego->frase_original << endl;
-        else
-            cout << "\nPerdiste. La frase era: " << juego->frase_original << endl;
-    }
+    } */
 
-    munmap(juego, sizeof(Juego));
-    close(shm_fd);
 
-    sem_close(sem_conexion);
-    sem_close(sem_inicio);
-    sem_close(sem_letra);
-    sem_close(sem_resultado);
-    sem_close(sem_mutex);
 
-    return 0;
-}
+        /*intento hacer un ingreso no bloqueante para que pueda manejar correctamente la señal de cierre del servidor
+        while(!forzar_salida){
+            if (muestra){
+                std::cout << "Ingresa una letra: ";
+                std::cout.flush();             
+                muestra=false;
+            }
+            fd_set set;
+            struct timeval timeout;
+            timeout.tv_sec = 1;   // evitar que se quede en select para siempre
+            timeout.tv_usec = 0;            
+            FD_ZERO(&set);
+            FD_SET(STDIN_FILENO,&set);
+            int rv = select(STDIN_FILENO + 1, &set, NULL, NULL, &timeout);
+            if (rv == -1) {
+                if (errno == EINTR) {
+                    // Interrumpido por señal, chequear forzar_salida
+                    continue;
+                } else {
+                    perror("select");
+                    break;
+                }
+            } else if (rv == 0) {
+                // timeout, no input, chequeamos señal y seguimos
+                continue;
+            } else {         
+                // hay datos en el stdin
+                char ch;
+                ssize_t n = read(STDIN_FILENO, &ch, 1);
+                if (n > 0) {
+                    if (forzar_salida) break;
+                    if (isalpha(ch)) {
+                        letra = ch;
+                        juego->letra_actual = letra;
+                        break;
+                    } else {
+                        std::cout << "\nPor favor, ingresa solo una letra:\n";
+                        muestra = true;
+                    }
+                }                
+            }   
+        }*/
