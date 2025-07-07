@@ -28,14 +28,59 @@ namespace fs = std::filesystem;
 using namespace std;
 
 volatile sig_atomic_t terminar = 0;
-volatile sig_atomic_t terminar_inmediatamente = 0;
+
+volatile sig_atomic_t pid_cliente_global = -1;
 
 struct Resultado {
     string nickname;
     double duracion;
 };
 
+
+void mostrarRanking();
+void limpiarSemaforosPorNombre();
+void notificarCliente(Juego* juego, int senial);
 vector<Resultado> ranking;
+
+void mostrarRanking() {
+    if (ranking.empty()) {
+    cout << "No hay resultados en el ranking.\n";
+    }
+    else {
+        cout << "\nRanking de ganadores (ordenado por menor tiempo):\n";
+            sort(ranking.begin(), ranking.end(), [](auto& a, auto& b) {
+        return a.duracion < b.duracion;
+    });
+
+    int pos = 1;
+    for (auto& r : ranking) {
+        cout << pos++ << ". " << r.nickname << " - " << r.duracion << " seg\n";
+    }
+    }
+
+}
+
+void limpiarSemaforosPorNombre() {
+    sem_t* s;
+    const char* semaforos[] = {
+        SEM_CONEXION,
+        SEM_INICIO,
+        SEM_LETRA,
+        SEM_RESULTADO,
+        SEM_MUTEX
+    };
+
+    for (const char* nombre : semaforos) {
+        s = sem_open(nombre, 0);
+        if (s != SEM_FAILED) {
+            sem_close(s);
+        }
+        sem_unlink(nombre);
+    }
+    
+
+}
+
 
 void sigusr1_handler(int signo) {
     cout << "Señal SIGUSR1 recibida: finalizar cuando termine la partida actual." << endl;
@@ -44,13 +89,18 @@ void sigusr1_handler(int signo) {
 
 void sigusr2_handler(int signo) {
     cout << "Señal SIGUSR2 recibida: finalizar inmediatamente." << endl;
-    terminar_inmediatamente = 1;
+    if (pid_cliente_global > 0)
+        kill(pid_cliente_global, SIGUSR1);
+    limpiarSemaforosPorNombre();
+    shm_unlink(SHM_NAME);
+    mostrarRanking();
+    exit(0);
 }
 
 void ocultarFrase(char* oculta, const char* original) {
     size_t len = strlen(original);
-    for (size_t i = 0; i < len; ++i)
-        oculta[i] = (original[i] == ' ') ? ' ' : '_';
+    for (size_t i = 0; i < len; i++)
+        oculta[i] = (isalpha(original[i])) ? '_' : original[i];
     oculta[len] = '\0';
 }
 
@@ -59,9 +109,13 @@ vector<string> leerFrases(const string& archivo) {
     ifstream file(archivo);
     string linea;
     while (getline(file, linea)) {
-        if (!linea.empty())
-            frases.push_back(linea);
+    if (!linea.empty()) {
+        // Eliminar \r si existe al final
+        if (!linea.empty() && linea.back() == '\r')
+            linea.pop_back();
+        frases.push_back(linea);
     }
+}
     return frases;
 }
 
@@ -184,7 +238,7 @@ int main(int argc, char* argv[]) {
 
     srand(time(NULL));
 
-    while (!terminar_inmediatamente && !terminar) {
+    while (!terminar) {
         cout << "Esperando cliente...\n";
 
         struct timespec ts;
@@ -193,13 +247,9 @@ int main(int argc, char* argv[]) {
 
         int r = sem_timedwait(sem_conexion, &ts);
         if (r == -1 && errno == ETIMEDOUT) {
-            if (terminar_inmediatamente || terminar) break;
+            if (terminar) break;
             continue; // Volver a esperar
         }
-
-
-        if (terminar_inmediatamente) break;
-
         // Verificar que el cliente esté conectado
         sem_wait(sem_mutex);
         bool conectado = juego->cliente_conectado;
@@ -210,6 +260,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
         cout << "Cliente conectado. Nickname: " << juego->nickname << endl;
+        pid_cliente_global = juego->pid_cliente;
         bool victoria = false;
         string frase = frases[rand() % frases.size()];
         strncpy(juego->frase_original, frase.c_str(), MAX_FRASE);
@@ -221,7 +272,7 @@ int main(int argc, char* argv[]) {
 
         sem_post(sem_inicio); // Avisar al cliente que puede leer la frase
 
-        while (!juego->juego_terminado && !terminar_inmediatamente) {
+        while (!juego->juego_terminado) {
             sem_wait(sem_letra);
 
             char letra = juego->letra_actual;
@@ -250,15 +301,6 @@ int main(int argc, char* argv[]) {
 
         juego->fin = time(nullptr);
 
-        if (terminar_inmediatamente) {
-            juego->terminado_abruptamente = true;
-            if (juego->pid_cliente > 0) {
-                kill(juego->pid_cliente, SIGUSR1);
-            }            
-            sem_post(sem_resultado);
-            break;
-        }
-
         //Cargar el cliente unicamente si es ganador
         if (!juego->terminado_abruptamente && victoria) {
             double duracion = difftime(juego->fin, juego->inicio);
@@ -270,28 +312,8 @@ int main(int argc, char* argv[]) {
         juego->cliente_conectado = false;
         sem_post(sem_mutex);        
     }
-
-    cout << "\nRanking de ganadores (ordenado por menor tiempo):\n";
-    sort(ranking.begin(), ranking.end(), [](auto& a, auto& b) {
-        return a.duracion < b.duracion;
-    });
-
-    int pos = 1;
-    for (auto& r : ranking) {
-        cout << pos++ << ". " << r.nickname << " - " << r.duracion << " seg\n";
-    }
-
-    // Limpieza
-    munmap(juego, sizeof(Juego));
-    close(shm_fd);
+    mostrarRanking();
+    limpiarSemaforosPorNombre();
     shm_unlink(SHM_NAME);
-
-    sem_close(sem_conexion); sem_unlink(SEM_CONEXION);
-    sem_close(sem_inicio); sem_unlink(SEM_INICIO);
-    sem_close(sem_letra); sem_unlink(SEM_LETRA);
-    sem_close(sem_resultado); sem_unlink(SEM_RESULTADO);
-    sem_close(sem_mutex); sem_unlink(SEM_MUTEX);
-
-
     return 0;
 }

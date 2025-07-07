@@ -24,8 +24,8 @@ volatile sig_atomic_t forzar_salida = 0;
 
 //Forzar salida por el cierre abrupto del servidor
 void sigusr1_handler(int signo) {
-    cout << "Señal SIGUSR1 recibida: el servidor cerró y me tengo que desconectar." << endl;
-    forzar_salida = 1;
+    cout << "\n\nSeñal SIGUSR1 recibida: el servidor cerró y me tengo que desconectar.\n\n" << endl;
+    exit(0);
 }
 
 void mostrarAyuda() {
@@ -130,66 +130,83 @@ int main(int argc, char* argv[]) {
 
     cout << "Conectado. Frase a adivinar: " << juego->frase_oculta << endl;
     
-    while (!juego->juego_terminado && !forzar_salida) {
-        fd_set fds;
-        struct timeval tv;
-        FD_ZERO(&fds);
-        FD_SET(STDIN_FILENO, &fds);
-        tv.tv_sec = 10;
-        tv.tv_usec = 0;
-        cout << "Ingresa una letra: ";
-        cout.flush();
+while (!juego->juego_terminado && !forzar_salida) {
+    fd_set fds;
+    struct timeval tv;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    tv.tv_sec = 10;
+    tv.tv_usec = 0;
 
-        int r = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+    cout << "Ingresa una letra: ";
+    cout.flush();
 
+    int r = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+
+    if (r == -1) {
+        perror("select");
+        break;
+
+    } else if (r == 0) {
         if (forzar_salida) {
             cout << "\nSe recibió la señal del servidor. Finalizando.\n";
             break;
-        }        
-        
+        }
+        continue;
+    } else {
+        // Leer letra ingresada
+        char buffer[64];
+        ssize_t bytesRead = read(STDIN_FILENO, buffer, sizeof(buffer));
+        if (bytesRead <= 0) {
+            perror("read");
+            break;
+        }
 
-        if (r > 0) {
-            char buffer[16];
-            int n = read(STDIN_FILENO, buffer, sizeof(buffer));
-            if (n > 0) {
-                char letra = buffer[0];
-                juego->letra_actual = letra;
-                sem_post(sem_letra);
+        // Validar que haya solo una letra (ignorando \n si viene)
+        ssize_t i = 0;
+        while (i < bytesRead && buffer[i] != '\n') i++;
 
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                ts.tv_sec += 2;
+        if (i != 1) {
+            cout << "Solo se puede ingresar una letra, no palabras.\n";
+            continue;
+        }
 
-                if (sem_timedwait(sem_resultado, &ts) == -1) {
-                    if (errno == ETIMEDOUT && forzar_salida) {
-                        cout << "\nEl servidor finalizó la partida de forma abrupta.\n";
-                        break;
-                    } else if (errno != ETIMEDOUT) {
-                        perror("sem_timedwait");
-                        break;
-                    }
-                    continue;
-                }
+        char letraChar = buffer[0];
 
-                cout << "Frase actual: " << juego->frase_oculta << endl;
-                cout << "Intentos restantes: " << juego->intentos_restantes << endl;
+        if (!isalpha(letraChar)) {
+            cout << "Ingresa una letra válida. Entre a y z, sin Ñ.\n";
+            continue;
+        }
 
-                if (juego->terminado_abruptamente) {
-                    cout << "El servidor finalizó la partida de forma abrupta.\n";
-                    break;
-                }
-            }
-        } else if (r == 0) {
-            if (forzar_salida) {
-                cout << "\nSe recibió la señal del servidor. Finalizando.\n";
+        // Enviar letra al servidor
+        juego->letra_actual = letraChar;
+        sem_post(sem_letra);
+
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        ts.tv_sec += 2;
+
+        if (sem_timedwait(sem_resultado, &ts) == -1) {
+            if (errno == ETIMEDOUT && forzar_salida) {
+                cout << "\nEl servidor finalizó la partida de forma abrupta.\n";
+                break;
+            } else if (errno != ETIMEDOUT) {
+                perror("sem_timedwait");
                 break;
             }
             continue;
-        } else {
-            perror("select");
+        }
+
+        cout << "Frase actual: " << juego->frase_oculta << endl;
+        cout << "Intentos restantes: " << juego->intentos_restantes << endl;
+
+        if (juego->terminado_abruptamente) {
+            cout << "El servidor finalizó la partida de forma abrupta.\n";
             break;
         }
     }
+}
+
     if (!juego->terminado_abruptamente) {
         if (strcmp(juego->frase_oculta, juego->frase_original) == 0)
             cout << "\n ¡Ganaste! Frase completa: " << juego->frase_original << endl;
@@ -208,78 +225,3 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
-
-
-
-
-
-    /*while con entrada normal
-    while (!juego->juego_terminado && !forzar_salida) {
-        string input;
-        char letra;
-        
-        do {
-            cout << "Ingresa una letra: ";
-            getline(cin, input);
-        } while (input.length() != 1 && !forzar_salida);
-
-        if (forzar_salida) break;
-
-        letra = input[0];
-        juego->letra_actual = letra;
-
-        sem_post(sem_letra);      // Enviar letra
-        sem_wait(sem_resultado);  // Esperar resultado 
-
-        cout << "Frase actual: " << juego->frase_oculta << endl;
-        cout << "Intentos restantes: " << juego->intentos_restantes << endl;
-        if (juego->terminado_abruptamente) {
-            cout << "El servidor finalizó la partida de forma abrupta.\n";
-            break;
-        }
-    } */
-
-
-
-        /*intento hacer un ingreso no bloqueante para que pueda manejar correctamente la señal de cierre del servidor
-        while(!forzar_salida){
-            if (muestra){
-                std::cout << "Ingresa una letra: ";
-                std::cout.flush();             
-                muestra=false;
-            }
-            fd_set set;
-            struct timeval timeout;
-            timeout.tv_sec = 1;   // evitar que se quede en select para siempre
-            timeout.tv_usec = 0;            
-            FD_ZERO(&set);
-            FD_SET(STDIN_FILENO,&set);
-            int rv = select(STDIN_FILENO + 1, &set, NULL, NULL, &timeout);
-            if (rv == -1) {
-                if (errno == EINTR) {
-                    // Interrumpido por señal, chequear forzar_salida
-                    continue;
-                } else {
-                    perror("select");
-                    break;
-                }
-            } else if (rv == 0) {
-                // timeout, no input, chequeamos señal y seguimos
-                continue;
-            } else {         
-                // hay datos en el stdin
-                char ch;
-                ssize_t n = read(STDIN_FILENO, &ch, 1);
-                if (n > 0) {
-                    if (forzar_salida) break;
-                    if (isalpha(ch)) {
-                        letra = ch;
-                        juego->letra_actual = letra;
-                        break;
-                    } else {
-                        std::cout << "\nPor favor, ingresa solo una letra:\n";
-                        muestra = true;
-                    }
-                }                
-            }   
-        }*/
